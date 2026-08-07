@@ -66,10 +66,25 @@ Current signal set:
   (`LENDER_TYPE_PATTERNS`) — coarse, and worth widening once there's more lender
   name variety to test against.
 - CPL, judgment, builders lien — each adds distress weight directly.
-- Declared value present on the title print → treat as a recent purchase and
-  suppress (negative score), per `docs/signals.md` section E. LTSA appears to only
-  populate `Declared Value` on titles from recent transfers; confirm this holds
-  across a bigger sample before relying on it.
+- Recent purchase (current owner's `Application Received` date within the last 3
+  years) → suppress as a negative signal, per `docs/signals.md` section E.
+  **Correction from the first sample batch:** `Declared Value` initially looked
+  like the right recent-purchase flag, since both titles that had it were recent
+  transfers. A second batch broke that — two titles from 1999 and 2004 still carry
+  a `Declared Value` decades later, because it's whatever was declared when that
+  title's application was filed, not a marker of recency. `application_received`
+  is the correct proxy for how long the current owner has held title; `Declared
+  Value` is kept as descriptive context only.
+- Long hold (20+ years on title) and absentee ownership (mailing address outside
+  the property's municipality, with an extra weight if it's out of province) —
+  the holding-pattern signals from `docs/signals.md` section D. Both are cheap
+  string comparisons already available on every parsed title, no BC Assessment
+  join needed.
+- No mortgage currently on title, on an owner who isn't a recent purchase —
+  informational for now (full-equity position), not weighted into the score. On
+  its own it's ambiguous: could mean paid off and ripe to sell, or could mean the
+  owner never needed to borrow. Worth revisiting once outcome data exists to test
+  which reading holds.
 
 **Not yet implemented, all noted in `docs/signals.md`:** owner-entity health (needs
 a BC Registries corporate-search join), holding-pattern signals (needs BC
@@ -79,9 +94,17 @@ useful for now, but not the same granularity the roadmap's segment scoring wants
 
 ## Validated against
 
-Four real title pulls (see `docs/tomorrow-checklist.md` for what to bring for a
-bigger batch). One of the four is worth knowing about: a PID with two stacked
-private-lender mortgages, a Certificate of Pending Litigation filed by the first
-lender, and a municipal judgment — the score correctly puts it at the top. Another
-is a title acquired mid-2024 with a same-day mortgage — correctly suppressed as a
-recent purchase rather than ranked as a lead.
+Eight real title pulls across two batches (see `docs/tomorrow-checklist.md` for
+what to bring for a bigger one). Worth knowing about:
+
+- A PID with two stacked private-lender mortgages, a Certificate of Pending
+  Litigation filed by the first lender, and a municipal judgment — correctly
+  ranks at the top.
+- A title acquired mid-2024 with a same-day mortgage, and a second acquired in
+  early 2026 with no mortgage at all — both correctly suppressed as recent
+  purchases rather than ranked as leads.
+- Two titles held by the same owner for 22 and 27 years respectively, fully
+  unencumbered — one with an out-of-province (Calgary) mailing address on a
+  Burnaby property. These surfaced the `declared_value` bug above and, once
+  fixed, correctly rank as long-hold/absentee candidates rather than getting
+  swept up in the recent-purchase suppression they don't belong in.
