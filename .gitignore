@@ -1,0 +1,25 @@
+# Raw title, registry, and assessment extracts — personal information and
+# source licensing restrictions. Commit schemas and aggregates, never raw pulls.
+data/
+*.csv
+*.xlsx
+*.xls
+!docs/**/*.csv
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
