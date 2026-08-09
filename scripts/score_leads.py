@@ -31,6 +31,9 @@ DISTRESS_TYPES = {"CERTIFICATE OF PENDING LITIGATION", "JUDGMENT", "BUILDERS LIE
 # proxy; keep declared_value only as descriptive context.
 RECENT_TRANSFER_YEARS = 3
 LONG_HOLD_YEARS = 20
+# Past this many years overdue, a "renewal" is more likely a paid-off mortgage that
+# was never formally discharged from title (common in BC) than a live debt problem.
+STALE_MORTGAGE_YEARS = 8
 
 
 def holding_period_years(application_received: str):
@@ -78,6 +81,7 @@ def score_pid(pid: str, charges: list) -> dict:
 
     reasons = []
     latest_renewal = None
+    years_overdue = None
     latest_mortgage = mortgages[-1] if mortgages else None
 
     if latest_mortgage:
@@ -94,14 +98,24 @@ def score_pid(pid: str, charges: list) -> dict:
             f"Mortgage registered {reg_date} ({lender_type}, assumed {term}yr term) "
             f"-> predicted renewal ~{latest_renewal}"
         )
+        years_overdue = None
         if latest_renewal and datetime.fromisoformat(latest_renewal).date() < TODAY:
-            reasons.append(
-                "Predicted renewal date has already passed with no newer mortgage on "
-                "title — either a quiet renewal/extension the lender didn't re-register, "
-                "or the owner is past due and now on a higher floating rate. Worth a call "
-                "regardless, and a candidate for a fresh title pull to check for a discharge "
-                "or refinance we don't have on file."
-            )
+            years_overdue = (TODAY - datetime.fromisoformat(latest_renewal).date()).days / 365.25
+            if years_overdue <= STALE_MORTGAGE_YEARS:
+                reasons.append(
+                    "Predicted renewal date has already passed with no newer mortgage on "
+                    "title — either a quiet renewal/extension the lender didn't re-register, "
+                    "or the owner is past due and now on a higher floating rate. Worth a call "
+                    "regardless, and a candidate for a fresh title pull to check for a discharge "
+                    "or refinance we don't have on file."
+                )
+            else:
+                reasons.append(
+                    f"Renewal window passed {years_overdue:.0f} years ago with nothing newer on "
+                    "title — at this age it's much more likely a paid-off mortgage that was "
+                    "never formally discharged than a live renewal problem. Treating as roughly "
+                    "unencumbered, not as urgent debt pressure."
+                )
 
     if len(mortgages) >= 2:
         reasons.append(f"{len(mortgages)} mortgages registered — secondary financing in place")
@@ -152,7 +166,10 @@ def score_pid(pid: str, charges: list) -> dict:
         reasons.append("No mortgage currently on title — unencumbered, full equity position")
 
     renewal_overdue = bool(
-        latest_renewal and datetime.fromisoformat(latest_renewal).date() < TODAY
+        years_overdue is not None and years_overdue <= STALE_MORTGAGE_YEARS
+    )
+    mortgage_likely_stale = bool(
+        years_overdue is not None and years_overdue > STALE_MORTGAGE_YEARS
     )
 
     priority = 0
@@ -187,6 +204,7 @@ def score_pid(pid: str, charges: list) -> dict:
         "is_out_of_province": is_out_of_province,
         "predicted_next_renewal": latest_renewal or "",
         "renewal_overdue": renewal_overdue,
+        "mortgage_likely_stale": mortgage_likely_stale,
         "priority_score": priority,
         "recent_purchase_suppress": is_recent_transfer,
         "reasons": " ; ".join(reasons) if reasons else "No debt or distress charges on title",
