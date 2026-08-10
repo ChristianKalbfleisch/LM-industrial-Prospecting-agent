@@ -92,6 +92,7 @@ def parse_title(lines: list, source_file: str) -> tuple:
         "taxation_authority": None,
         "application_received": None,
         "declared_value": None,
+        "legal_notations": None,
     }
     charges = []
     current = None
@@ -104,10 +105,23 @@ def parse_title(lines: list, source_file: str) -> tuple:
         current = None
 
     for line in lines:
+        # "Legal Notations" is a free-text section — no "Nature:" charge line, so a
+        # real signal can live here instead (e.g. a Builders Lien Act notice of
+        # interest). Capture it as its own field so the scorer can scan it, rather
+        # than letting it silently glom onto legal_description as before.
+        stripped = line.strip()
+        if stripped == "Legal Notations":
+            mode = "legal_notations"
+            title["legal_notations"] = title["legal_notations"] or ""
+            continue
+        if stripped == "Charges, Liens and Interests":
+            mode = None
+            continue
+
         # A line can contain multiple "Label value" pairs packed together
         # (e.g. "Land Title District NEW WESTMINSTER") — only fields with an
         # explicit colon are structured data we act on; the rest is descriptive
-        # boilerplate (district names, legal notations) we don't need for Phase 1.
+        # boilerplate (district names) we don't need for Phase 1.
         fm = FIELD_LINE.match(line)
         ncm = None if fm else NO_COLON_LINE.match(line)
         if fm and fm.group(1).strip() in KNOWN_LABELS:
@@ -174,6 +188,8 @@ def parse_title(lines: list, source_file: str) -> tuple:
             title["owner_mailing_address"].append(line)
         elif mode == "legal_description":
             title["legal_description"] = ((title["legal_description"] or "") + " " + line).strip()
+        elif mode == "legal_notations":
+            title["legal_notations"] = (title["legal_notations"] + " " + line).strip()
 
     flush_charge()
     title["owner_mailing_address"] = " ".join(title["owner_mailing_address"])
@@ -202,10 +218,10 @@ def classify_lender(name: str) -> str:
 FIELDNAMES = [
     "pid", "title_number", "registered_owner", "owner_incorporation_no",
     "owner_mailing_address", "taxation_authority", "legal_description",
-    "declared_value", "application_received", "charge_type", "charge_reg_number",
-    "charge_reg_date", "chargeholder", "chargeholder_incorporation_no",
-    "lender_type", "mortgage_count_on_title", "distress_charge_count_on_title",
-    "source_file",
+    "legal_notations", "declared_value", "application_received", "charge_type",
+    "charge_reg_number", "charge_reg_date", "chargeholder",
+    "chargeholder_incorporation_no", "lender_type", "mortgage_count_on_title",
+    "distress_charge_count_on_title", "source_file",
 ]
 
 
@@ -229,6 +245,7 @@ def to_rows(title: dict, charges: list) -> list:
             "owner_mailing_address": title["owner_mailing_address"],
             "taxation_authority": title["taxation_authority"],
             "legal_description": title["legal_description"],
+            "legal_notations": title["legal_notations"],
             "declared_value": title["declared_value"],
             "application_received": title["application_received"],
             "charge_type": c["charge_type"],
