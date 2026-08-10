@@ -117,7 +117,13 @@ def main():
     existing = load_existing_pids(args.existing_leads)
     zones = set(args.industrial_zones)
 
-    rows = []
+    # Some PIDs cover several legal sub-parcels — found on 10619 Timberland Rd, which
+    # showed up 4 times with different land values because the source file has one row
+    # per legal description (often LEASE/PERMIT/LICENCE sub-parcels of a Crown lease
+    # site), not one row per PID. Group by PID first and sum assessed values, so a
+    # multi-parcel site becomes one candidate with its true total value, not several
+    # near-duplicate rows that look like separate opportunities.
+    by_pid = {}
     with open(args.csv_path, encoding="utf-8-sig") as f:
         for row in csv.DictReader(f):
             if row["ZONE_DESCRIPTION"] not in zones:
@@ -126,7 +132,23 @@ def main():
                 continue
             if not row["PID"]:
                 continue
-            rows.append(score_row(row, existing))
+            by_pid.setdefault(row["PID"], []).append(row)
+
+    rows = []
+    for pid, subrows in by_pid.items():
+        if len(subrows) == 1:
+            rows.append(score_row(subrows[0], existing))
+            continue
+        merged = dict(subrows[0])
+        merged["GROSS_LAND"] = str(sum(float(r["GROSS_LAND"] or 0) for r in subrows))
+        merged["GROSS_IMPROVEMENTS"] = str(sum(float(r["GROSS_IMPROVEMENTS"] or 0) for r in subrows))
+        merged["GROSS_ASSESSMENT"] = str(sum(float(r["GROSS_ASSESSMENT"] or 0) for r in subrows))
+        scored = score_row(merged, existing)
+        scored["reasons"] = (
+            f"Multi-parcel PID ({len(subrows)} legal sub-parcels summed — often a Crown "
+            f"lease site, verify before pulling title) ; " + scored["reasons"]
+        )
+        rows.append(scored)
 
     rows.sort(key=lambda r: r["tier1_score"], reverse=True)
 
