@@ -51,19 +51,30 @@ def parse_sales_history(text: str):
     ]
 
 
-def load_autoprop(path: Path) -> dict:
+def load_autoprop_xlsx(path: Path) -> list:
     wb = openpyxl.load_workbook(path, data_only=True)
     ws = wb.active
-    rows = list(ws.iter_rows(min_row=2, values_only=True))
     headers = [c.value for c in ws[1]]
+    return [dict(zip(headers, r)) for r in ws.iter_rows(min_row=2, values_only=True)]
 
+
+def load_autoprop_csv(path: Path) -> list:
+    # AutoProp's CSV export repeats the "Municipality" column and includes a BOM;
+    # utf-8-sig strips the BOM, and DictReader keeps the last value for a repeated
+    # header, which is fine here since both copies hold the same value.
+    with open(path, encoding="utf-8-sig", newline="") as f:
+        return list(csv.DictReader(f))
+
+
+def load_autoprop(paths: list) -> dict:
     by_pid = {}
-    for r in rows:
-        rec = dict(zip(headers, r))
-        pid = rec.get("PID")
-        if not pid:
-            continue
-        by_pid.setdefault(pid, []).append(rec)
+    for path in paths:
+        records = load_autoprop_csv(path) if path.suffix.lower() == ".csv" else load_autoprop_xlsx(path)
+        for rec in records:
+            pid = rec.get("PID")
+            if not pid:
+                continue
+            by_pid.setdefault(pid, []).append(rec)
     return by_pid
 
 
@@ -101,12 +112,13 @@ def summarize_sale(sales: list) -> dict:
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("autoprop_xlsx", type=Path)
+    ap.add_argument("autoprop_files", type=Path, nargs="+",
+                     help="One or more AutoProp exports (.xlsx or .csv) to merge together")
     ap.add_argument("--tier1-csv", type=Path, required=True)
     ap.add_argument("-o", "--out", type=Path, required=True)
     args = ap.parse_args()
 
-    autoprop = load_autoprop(args.autoprop_xlsx)
+    autoprop = load_autoprop(args.autoprop_files)
 
     with open(args.tier1_csv) as f:
         tier1 = {r["pid"]: r for r in csv.DictReader(f)}
