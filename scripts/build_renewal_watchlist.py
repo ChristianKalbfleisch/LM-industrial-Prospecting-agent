@@ -24,6 +24,7 @@ from openpyxl.utils import get_column_letter
 sys.path.insert(0, str(Path(__file__).parent))
 from parse_titles import classify_lender  # noqa: E402
 from score_leads import ASSUMED_TERM_YEARS  # noqa: E402
+from address_key import address_key  # noqa: E402
 
 TODAY = date.today()
 FONT = "Arial"
@@ -43,8 +44,25 @@ def rate_vintage(d: date) -> str:
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("comps_xlsx", type=Path)
+    ap.add_argument("--autoprop", type=Path, default=None,
+                    help="merge_autoprop_export.py output, to catch comps that have since resold")
     ap.add_argument("-o", "--out", type=Path, required=True)
     args = ap.parse_args()
+
+    # A comps record is a snapshot of one transaction. If the property has traded AGAIN
+    # since, the renewal thesis is dead for it — there is a new owner on new financing.
+    # Without this check the top-ranked lead on the first build was a property that had
+    # already resold four months earlier.
+    resold = {}
+    if args.autoprop and args.autoprop.exists():
+        import csv as _csv
+        for r in _csv.DictReader(open(args.autoprop)):
+            d = r.get("most_recent_sale_date")
+            if not d:
+                continue
+            y, m, dd = (int(x) for x in d.split("-"))
+            resold.setdefault(address_key(r.get("civic_address")), []).append(
+                (date(y, m, dd), r.get("most_recent_sale_type", "")))
 
     wb_in = openpyxl.load_workbook(args.comps_xlsx, data_only=True)
     ws_in = wb_in.active
@@ -93,6 +111,13 @@ def main():
             elif ltv >= 0.8:
                 reasons.append(f"High leverage ({ltv*100:.0f}% of price) — little equity cushion at renewal")
 
+        # supersede check
+        later = [(d, t) for d, t in resold.get(address_key(r.get("Address")), []) if d > td]
+        superseded = max(later)[0] if later else None
+        if superseded:
+            reasons.insert(0, f"SUPERSEDED — resold {superseded}, after this transaction. "
+                              "New owner on new financing; the renewal thesis no longer applies.")
+
         score = 0
         if -6 <= months_out <= 18:
             score += 50
@@ -109,8 +134,12 @@ def main():
         if real_maturity:
             score += 10  # evidence beats estimate
 
+        if superseded:
+            score = -100  # drop below everything rather than silently rank a dead lead
+
         recs.append({
             "score": score,
+            "superseded_by_resale": superseded.isoformat() if superseded else "",
             "address": r.get("Address"),
             "municipality": r.get("Municipality"),
             "purchase_date": td,
@@ -139,7 +168,7 @@ def main():
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Renewal Watchlist"
-    headers = ["Score", "Address", "City", "Purchased", "Price", "$/SF", "Bldg SF", "Built",
+    headers = ["Score", "Resold Since?", "Address", "City", "Purchased", "Price", "$/SF", "Bldg SF", "Built",
                "Purchaser", "Signing Officer", "Position", "Vendor",
                "Lender", "Lender Class", "Mortgage $", "LTV",
                "CONFIRMED Maturity", "Estimated Renewal", "Assumed Term (yr)",
@@ -147,7 +176,7 @@ def main():
     ws.append(headers)
     for r in recs:
         ws.append([
-            r["score"], r["address"], r["municipality"], r["purchase_date"], r["price"],
+            r["score"], r["superseded_by_resale"], r["address"], r["municipality"], r["purchase_date"], r["price"],
             r["psf"], r["building_sf"], r["year_built"], r["purchaser"],
             r["signing_officer"], r["officer_position"], r["vendor"],
             r["lender"], r["lender_class"], r["mortgage_amt"], r["ltv"],
@@ -159,8 +188,8 @@ def main():
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
     for i, c in enumerate(ws[1], start=1):
         c.font = Font(name=FONT, bold=True, color="FFFFFF", size=10)
-        c.fill = PatternFill(start_color="2E7D32" if i == 17 else "1F4E78",
-                             end_color="2E7D32" if i == 17 else "1F4E78", fill_type="solid")
+        c.fill = PatternFill(start_color="2E7D32" if i == 18 else "1F4E78",
+                             end_color="2E7D32" if i == 18 else "1F4E78", fill_type="solid")
         c.alignment = Alignment(vertical="center", horizontal="center", wrap_text=True)
         c.border = border
 
@@ -172,26 +201,29 @@ def main():
         for c in row:
             c.font = Font(name=FONT, size=10)
             c.border = border
-            c.alignment = Alignment(vertical="top", wrap_text=(c.column_letter in ("B", "I", "L", "M", "V")))
+            c.alignment = Alignment(vertical="top", wrap_text=(c.column_letter in ("C", "J", "M", "N", "W")))
         s = row[0].value
-        if s >= 90:
+        if row[1].value:
+            for c in row:
+                c.fill = PatternFill(start_color="F8CBCB", end_color="F8CBCB", fill_type="solid")
+        elif s >= 90:
             for c in row:
                 c.fill = hot
         elif s >= 60:
             for c in row:
                 c.fill = warm
-        if row[16].value:
-            row[16].fill = confirmed
-        row[3].number_format = "yyyy-mm-dd"
-        for i in (4, 14):
+        if row[17].value:
+            row[17].fill = confirmed
+        row[4].number_format = "yyyy-mm-dd"
+        for i in (5, 15):
             row[i].number_format = '$#,##0'
-        row[5].number_format = '$#,##0'
-        row[15].number_format = '0%'
+        row[6].number_format = '$#,##0'
+        row[16].number_format = '0%'
 
-    widths = [7, 28, 11, 12, 14, 8, 10, 8, 26, 22, 10, 26, 30, 18, 14, 8, 17, 16, 12, 12, 22, 74]
+    widths = [7, 14, 28, 11, 12, 14, 8, 10, 8, 26, 22, 10, 26, 30, 18, 14, 8, 17, 16, 12, 12, 22, 74]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
-    ws.freeze_panes = "C2"
+    ws.freeze_panes = "D2"
     ws.auto_filter.ref = ws.dimensions
 
     # --- notes ---
