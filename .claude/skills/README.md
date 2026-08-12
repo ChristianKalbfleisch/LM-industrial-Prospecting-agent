@@ -73,3 +73,15 @@ Put anything about *this business* here. Put personal cross-project habits in
 > One caveat for web and remote sessions: they run in a fresh container that is
 > discarded afterward, so only files **committed to the repo** persist. `~/.claude/`
 > edits made in a web session do not survive.
+
+## Skills currently in this repo
+
+- **`bc-municipal-data`** — which BC municipalities publish usable open data and what each
+  one actually has (they differ enormously), plus how to discover a new city's portal.
+- **`property-data-traps`** — parsing quirks and false signals in titles, assessment data,
+  comps and AutoProp exports. Every entry produced a plausible wrong answer before it was
+  caught. Read before trusting a new signal.
+
+Both were written from real findings in this project rather than from general knowledge,
+which is what makes them worth loading. Add to them whenever something is learned the
+hard way — a trap that cost an hour to find is worth the two minutes to write down.

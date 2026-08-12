@@ -21,9 +21,15 @@ scientist: ranked lists with the *reason* attached, not opaque scores.
 
 ## The economic constraint that shapes everything
 
-A title pull costs **$14**. That makes this a **precision problem, not a recall
-problem**. Missing a lead costs nothing measurable; pulling 500 titles on a bad
-segment costs $7,000 and a week of wasted follow-up.
+A title pull costs **$14** — but measured against real deals, that is not the binding
+constraint. A comps set of 55 Surrey industrial transactions puts the **median deal at
+$9.0M**, which at 1.5% is roughly **$135,000 gross commission — about 9,600 title pulls.**
+One closed deal funds more pulls than a broker will make in years.
+
+So the real scarce input is **broker attention, not the $14**. Be more liberal about
+pulling title than the $14 framing suggests, and ruthless about which leads earn a phone
+call. A rule producing many weak-but-positive leads is worse than one producing few strong
+ones — not because the pulls cost too much, but because the follow-up does.
 
 Design the pipeline as a funnel — cheap signals gate expensive ones:
 
@@ -43,8 +49,9 @@ When you evaluate a targeting rule, express it as expected value, not accuracy:
 EV = P(motivated) x P(we win the listing) x expected_commission  -  $14
 ```
 
-The broker's time is the scarcer input than the $14 — a rule that produces many
-weak-but-positive leads is worse than one that produces few strong ones.
+Real inputs for that equation, from 55 Surrey industrial comps (2021-23): median price
+$9.0M, median $560/sq ft, price range $4.0M-$178M. Commission rate is the broker's to
+supply — 1.5% is used above only as an illustration, not a known figure.
 
 ## Domain notes
 
@@ -74,6 +81,36 @@ Signal taxonomy lives in `docs/signals.md` — read it when working on scoring.
 - Keep the ranked-output format explainable: every lead carries the signals that
   put it there.
 - Geography is Greater Vancouver / Metro Vancouver unless stated otherwise.
+
+## What's built, and where the knowledge lives
+
+Pipeline (all in `scripts/`, run in this order):
+
+| Script | Does |
+|---|---|
+| `parse_titles.py` | LTSA Title Search Print PDFs -> one row per charge |
+| `score_leads.py` | charges -> ranked leads, reasons attached (CONFIRMED tier) |
+| `score_tier1_candidates.py` | municipal open data -> candidate universe (ESTIMATED tier) |
+| `merge_autoprop_export.py` | AutoProp exports -> title numbers, real sale history |
+| `build_renewal_watchlist.py` | comps -> dated mortgage-renewal watchlist |
+| `build_contact_worksheet.py` | address list -> businesses at each address |
+
+Two skills load automatically when relevant — read them rather than rediscovering:
+
+- **`bc-municipal-data`** — which BC municipalities publish what (they differ enormously:
+  Surrey has everything, Richmond has nothing), and how to find a new city's portal.
+- **`property-data-traps`** — every parsing quirk and false signal found the hard way.
+  Check it before trusting a new signal. Each entry produced a plausible wrong answer first.
+
+## Standing rules learned from real mistakes
+
+- **Never fabricate contact data.** No guessed emails, no inferred names. A broker dials
+  these; a plausible wrong contact costs more than a blank cell. Blank is a valid answer.
+- **Keep CONFIRMED and ESTIMATED in separate columns**, never blended. A real maturity date
+  is evidence; purchase date plus an assumed term is arithmetic.
+- **Prefer the conservative default when a classification is ambiguous.** Over-calling a
+  renewal wastes broker time; under-calling one costs nothing.
+- **Deduplicate by PID before ranking.** One PID can cover several legal sub-parcels.
 
 ## Adding new knowledge to this repo
 
