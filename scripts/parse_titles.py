@@ -196,22 +196,60 @@ def parse_title(lines: list, source_file: str) -> tuple:
     return title, charges
 
 
+# Order matters — first match wins, so the specific patterns (life insurance, MIC)
+# must precede the broad ones. Expanded after checking the classifier against two real
+# datasets: 275 mortgages from pulled titles and 43 lenders from a comparable-sales
+# export. The original patterns missed a lot, and two misses actually changed scoring:
+#   - "THE TORONTO-DOMINION BANK" (17 mortgages) never matched, because \bTD\b only
+#     catches the abbreviation, never the legal name.
+#   - Life insurers are registered as "<X> LIFE ASSURANCE COMPANY", not "LIFE INSURANCE"
+#     — so Imperial Life, Mutual Life, National Life and Manufacturers Life all fell
+#     through to a 5-year default when the observed term for that class is ~10 years.
+#     That is a five-year error in the predicted renewal date, in the one lender class
+#     where the term is longest.
 LENDER_TYPE_PATTERNS = [
-    (r"ROYAL BANK|BANK OF (MONTREAL|NOVA SCOTIA)|CIBC|CANADIAN IMPERIAL BANK|\bTD\b|HSBC|NATIONAL BANK", "chartered_bank"),
-    (r"CREDIT UNION|VANCITY|COAST CAPITAL", "credit_union"),
-    (r"LIFE INSURANCE|SUN LIFE|MANULIFE|GREAT-WEST", "life_insurance"),
-    (r"MORTGAGE INVESTMENT|\bMIC\b|MORTGAGE CORP|MORTGAGE INC", "mic_private"),
-    (r"^\d{6,7} B\.?C\.? LTD|B\.C\. LTD\.?$", "numbered_co_private"),
+    # life insurers first — their names contain "COMPANY"/"ASSURANCE", not "BANK"
+    (r"LIFE ASSURANCE|LIFE INSURANCE|SUN LIFE|MANULIFE|MANUFACTURERS LIFE|GREAT-WEST"
+     r"|\bSLC MANAGEMENT\b|CANADA LIFE|EMPIRE LIFE|INDUSTRIAL ALLIANCE", "life_insurance"),
+    (r"MORTGAGE INVESTMENT|\bMIC\b|MORTGAGE CORP|MORTGAGE INC|MORTGAGE FUND", "mic_private"),
+    (r"CREDIT UNION|VANCITY|COAST CAPITAL|FIRST WEST|GULF & FRASER|PROSPERA|ENVISION", "credit_union"),
+    (r"ROYAL BANK|BANK OF MONTREAL|BANK OF NOVA SCOTIA|SCOTIABANK|CIBC"
+     r"|CANADIAN IMPERIAL BANK|TORONTO-DOMINION|\bTD BANK\b|\bTD\b|HSBC|HONGKONG BANK"
+     r"|NATIONAL BANK|CANADIAN WESTERN BANK|LAURENTIAN BANK|ICICI BANK"
+     r"|BUSINESS DEVELOPMENT BANK|\bBDC\b", "chartered_bank"),
+    # trust/institutional lenders and government agencies behave differently from both
+    # banks and private lenders, so they get their own bucket rather than "other"
+    (r"\bTRUST\b|TRUSTCO|COMPUTERSHARE|\bCMHC\b|CANADA MORTGAGE AND HOUSING"
+     r"|CENTRAL MORTGAGE AND HOUSING|CMLS|MCAP|ROYNAT|WELLS FARGO|EXTENSION FUND"
+     r"|\bREIT\b|CHOICE PROPERTIES|PENSION|\bFUND\b", "institutional_trust"),
+    # Only genuine numbered companies (a digit string as the company name). An earlier
+    # version matched any name ending in LTD/INC/CORP, which swept in Laurentian Trust,
+    # a church extension fund and a listed REIT and handed them a 1-year term — inventing
+    # renewal urgency that isn't there. Named corporations now fall through to "other"
+    # and keep the conservative 5-year default: under-calling a renewal wastes nothing,
+    # over-calling one wastes a broker's afternoon.
+    (r"^\d{6,7}\s*B\.?C\.?\s*LTD|^\d{6,7}\s*(ONTARIO|ALBERTA|CANADA)\s*(INC|LTD)", "numbered_co_private"),
 ]
+
+# A chargeholder with no corporate suffix at all is almost always a natural person —
+# typically a vendor-take-back mortgage or a private family loan. Worth separating:
+# these rarely behave like institutional debt on renewal.
+PERSON_NAME = re.compile(r"^[A-Z][A-Z\-' ]+$")
+CORPORATE_HINT = re.compile(
+    r"\b(LTD|LIMITED|INC|INCORPORATED|CORP\w*|COMPANY|BANK|UNION|TRUST\w*|ASSOCIATION"
+    r"|SOCIETY|FUND|CAPITAL|HOLDINGS|INVESTMENTS?|PROPERTIES|VENTURES|ENTERPRISES|GP|LP"
+    r"|LLP|AUTHORITY|CHURCH|MANAGEMENT|FINANCE|FINANCIAL|SERVICES|DEVELOPMENTS?)\b")
 
 
 def classify_lender(name: str) -> str:
     if not name:
         return ""
-    upper = name.upper()
+    upper = name.upper().strip()
     for pattern, label in LENDER_TYPE_PATTERNS:
         if re.search(pattern, upper):
             return label
+    if PERSON_NAME.match(upper) and not CORPORATE_HINT.search(upper):
+        return "private_individual"
     return "other"
 
 

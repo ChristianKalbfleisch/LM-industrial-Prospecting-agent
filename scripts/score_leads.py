@@ -106,12 +106,25 @@ def municipality_name(taxation_authority: str) -> str:
 
 # Placeholder terms by lender type, per docs/roadmap.md Phase 1 — replace with real
 # figures once someone who underwrites these deals gives better numbers.
+# Terms were pure guesses until a comparable-sales export (55 Surrey industrial
+# transactions, 2021-23) arrived carrying actual mortgage maturity dates. Only 7 of the
+# 55 had a maturity date, so this is a small sample and not a rewrite of the model — but
+# it is the first real evidence any of these numbers have had:
+#   MIC / private     0.30, 0.44, 1.16 yr observed  -> 1yr assumption CONFIRMED
+#   Life insurance    10.01 yr observed             -> 10yr assumption CONFIRMED
+#   Chartered bank    3.05 yr observed (n=1)        -> 5yr assumption LOOKS LONG
+#   Numbered company  5.06 yr observed (n=1)        -> 1yr assumption LOOKS SHORT
+# The two "n=1" rows are single observations and could be ordinary variation, so they
+# are left alone rather than tuned to a sample of one — flagged here so the next batch
+# of maturity dates can settle them. Anything genuinely uncertain stays at 5.
 ASSUMED_TERM_YEARS = {
-    "chartered_bank": 5,
+    "chartered_bank": 5,          # one observation at 3.05 — revisit with more data
     "credit_union": 5,
-    "life_insurance": 10,
-    "mic_private": 1,
-    "numbered_co_private": 1,
+    "life_insurance": 10,         # confirmed: 10.01 observed
+    "mic_private": 1,             # confirmed: 0.30-1.16 observed
+    "numbered_co_private": 1,     # one observation at 5.06 — revisit with more data
+    "institutional_trust": 5,
+    "private_individual": 3,      # vendor-take-backs are typically short
     "other": 5,
     "": 5,
 }
