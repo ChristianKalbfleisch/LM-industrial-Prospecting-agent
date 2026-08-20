@@ -100,8 +100,54 @@ and have no corporate record in BC Registries. Detect them off the owner name on
 rank them out — nothing cheaper catches this.
 
 **Not every owner is a BC company.** `2184034 ALBERTA LTD.` and `FORMA GROUP INC.
-(767084-2)` are extraprovincial or federal registrations; a BC Registries search returns
-nothing for them. That is a wrong-register problem, not a missing company.
+(767084-2)` are extraprovincial or federal registrations. BC issues them a SEPARATE
+registration number (Forma is `A0128362` in BC), so the incorporation number on title —
+the home jurisdiction's — will not join. Fall back to a company-name match for these only.
+
+## Parsing the corp summary PDF (three bugs, each silently wrong)
+
+**It is a two-column form like the title print, and flat text ran the columns together.**
+A first pass captured only the FIRST director of every company, because the line
+`CANADA CANADA` — the two columns' country lines side by side — matches an ALL-CAPS
+"next section header" pattern and terminated the section early. 45 companies came back
+with ~50 directors; the corrected parser finds 126. Read addresses off word coordinates,
+splitting at the page's own `Delivery Address:` label rather than a hardcoded x.
+
+**Do NOT apply the column split to the whole page.** The company name and the field labels
+straddle the middle of the page, so a fixed split shears them in half. Keep flat text for
+the field regexes and use coordinates only inside address blocks.
+
+**A label and its value sit at slightly different `top` values** when their font sizes
+differ, so grouping words into lines by `top` puts `BC1423681` and `Incorporation Number:`
+on separate lines — and the regex then grabs the next line instead, returning `KKBL` as an
+incorporation number. Cluster on the vertical CENTRE of each word, not the top.
+
+**`Extraprovincial Company Summary` is a different form.** Costco and Lhoist parsed to
+nothing because the splitter only looked for `BC Company Summary`. That form has
+`Registration Number in BC` instead of an incorporation number, a HEAD OFFICE instead of a
+registered office, and states plainly that *"Directors are not recorded for extraprovincial
+registration types"* — it files a **BC attorney** instead. That attorney is the only BC-side
+contact the registry holds for such a company.
+
+**The registry states amalgamation outright.** `Recognition Date and Time: ... as a result
+of an Amalgamation` is better evidence than inferring restructuring from a mismatch between
+a numbered name and its registration number. Read the field; keep the inference as backup.
+
+## Contact data from the corporate register
+
+**Registry addresses are real; emails and phones do not exist there.** BC Registries
+publishes a registered office address and a mailing address for every director. It
+publishes no email address and no phone number for anyone. Getting those means a directory
+or a subscription source checked name by name — never inference.
+
+**A director's registry address that equals the subject property means owner-occupier.**
+Three of 50 Surrey rows matched this way. It changes the conversation completely: an
+owner-occupier has to solve where the business goes before they can sell, and the person
+on file is the decision maker on site rather than a passive investor.
+
+**A registered office shared across several companies is usually the accountant or lawyer,
+not a portfolio.** Check whether the address belongs to a professional firm before reading
+common ownership into it.
 
 ## Duplicate rows that look like separate properties
 

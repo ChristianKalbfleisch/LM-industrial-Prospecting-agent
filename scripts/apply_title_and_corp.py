@@ -26,11 +26,15 @@ the broker's working file; they are not published.
 import argparse
 import csv
 import re
+import sys
 from collections import defaultdict
 from datetime import date, datetime
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+
 import openpyxl
+from address_key import address_key
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 
@@ -49,11 +53,13 @@ PUBLIC_BODY = re.compile(
 # Columns inserted directly after "Purchaser" so the ownership story reads left to right:
 # who bought it, who holds it now, and what shape that entity is in.
 NEW_COLS = ["Registered Owner (title)", "Owner Changed?", "Corp Status", "Incorporated",
-            "Last Annual Report", "Report Overdue (mo)", "Corp Signal", "Directors / Officers"]
+            "Last Annual Report", "Report Overdue (mo)", "Corp Signal", "Directors / Officers",
+            "Mail To (registered office)", "Director Address (registry)"]
 BASE_SCORE = "Score (pre-corp)"   # keeps this script re-runnable as new searches come in
 WIDTHS = {"Registered Owner (title)": 34, "Owner Changed?": 14, "Corp Status": 12,
           "Incorporated": 14, "Last Annual Report": 16, "Report Overdue (mo)": 11,
-          "Corp Signal": 46, "Directors / Officers": 34, BASE_SCORE: 11}
+          "Corp Signal": 46, "Directors / Officers": 34, BASE_SCORE: 11,
+          "Mail To (registered office)": 34, "Director Address (registry)": 44}
 
 
 def parse_reg_date(s):
@@ -211,13 +217,21 @@ def main():
     for r in rows:
         pid = r[ix["PID"]]
         t = titles.get(pid)
-        add = ["", "", "", "", "", None, "", ""]
+        add = ["", "", "", "", "", None, "", "", "", ""]
         if t:
             stats["title"] += 1
             add[0] = t["owner_plain"]
             changed = norm_company(r[ix["Purchaser"]]) != norm_company(t["owner_plain"])
             add[1] = "YES" if changed else ""
             matched = [corps[i] for i in t["incs"] if i in corps]
+            # An extraprovincial owner carries its HOME jurisdiction's number on title
+            # (Forma Group's federal 767084-2) while BC registers it as A0128362, so the
+            # ID join misses it. Fall back to the company name for those, and only those.
+            if not matched:
+                key = norm_company(t["owner_plain"])
+                matched = [c for c in corps.values() if norm_company(c["company_name"]) == key]
+                if matched:
+                    stats["by_name"] += 1
             if matched:
                 stats["corp"] += 1
                 sigs, delta, overdue = [], 0, None
@@ -232,6 +246,25 @@ def main():
                 add[5] = overdue
                 names = "; ".join(c["all_people"] for c in matched if c["all_people"])
                 add[7] = names
+                add[8] = " | ".join(c["registered_office"] for c in matched
+                                    if c["registered_office"])
+                add[9] = " | ".join(c["people_addresses"] for c in matched
+                                    if c.get("people_addresses"))
+                # A director whose registry address IS this property occupies the building.
+                # That is a different conversation: an owner-occupier has to solve where the
+                # business goes before they can sell, and they are the decision maker on site.
+                here = address_key(r[ix["Address"]])
+                if here and any(here == address_key(seg.split(" — ", 1)[-1])
+                                for seg in add[9].split(" | ") if " — " in seg):
+                    sigs.append("a director's registry address is this property — "
+                                "OWNER-OCCUPIER, not a passive investor; they must solve "
+                                "where the business goes before they can sell")
+                for c in matched:
+                    if str(c.get("directors_not_recorded", "")).lower() == "true":
+                        sigs.append("extraprovincial registration — BC does not record "
+                                    "directors; the home jurisdiction does")
+                        if c.get("bc_attorney"):
+                            add[9] = f"BC attorney: {c['bc_attorney']}"
                 for c in matched:
                     for p in filter(None, (x.strip() for x in c["all_people"].split(";"))):
                         if p in shared:
@@ -284,7 +317,8 @@ def main():
     thin = Side(style="thin", color="D9D9D9")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
     for c in ws[1]:
-        green = c.value in ("CONFIRMED Maturity", "Corp Signal", "Directors / Officers")
+        green = c.value in ("CONFIRMED Maturity", "Corp Signal", "Directors / Officers",
+                            "Mail To (registered office)", "Director Address (registry)")
         c.font = Font(name=FONT, bold=True, color="FFFFFF", size=10)
         c.fill = PatternFill(start_color="2E7D32" if green else "1F4E78",
                              end_color="2E7D32" if green else "1F4E78", fill_type="solid")
@@ -294,7 +328,9 @@ def main():
     fills = {"hot": "C6E7C6", "warm": "E2F0D9", "dead": "F8CBCB",
              "confirmed": "B7E1CD", "corp": "FFE0B2"}
     wrap = {"Address", "Purchaser", "Registered Owner (title)", "Corp Signal",
-            "Directors / Officers", "Vendor", "Lender", "Why", "Why title", "Why corp search"}
+            "Directors / Officers", "Mail To (registered office)",
+            "Director Address (registry)", "Vendor", "Lender", "Why", "Why title",
+            "Why corp search"}
     for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
         for c in row:
             c.font = Font(name=FONT, size=10)
@@ -378,7 +414,21 @@ def main():
         "STILL NOT ANSWERED BY EITHER SEARCH: mortgage term and maturity date. Those are never",
         "on title in BC, so renewal timing stays an estimate no matter how many titles are pulled.",
         "",
-        "PRIVACY: director names on this sheet come from the corporate register. Internal use.",
+        "CONTACT DATA — WHAT IS HERE AND WHAT IS NOT",
+        "Two address columns are now filled from the corporate register itself:",
+        "  Mail To (registered office) — where the company accepts formal correspondence.",
+        "  Director Address (registry) — the address each director has on file, which for a",
+        "  single-asset holdco is frequently the operating premises or the director's home.",
+        "Both are authoritative: they are the registry's own record, not a directory lookup.",
+        "",
+        "There are NO email addresses and NO phone numbers here, because BC Registries does",
+        "not publish either. Nothing in this pipeline can produce them without guessing, and a",
+        "plausible wrong contact costs more than a blank cell. Getting them means a directory",
+        "or a subscription source, checked name by name — a separate job, done deliberately.",
+        "",
+        "PRIVACY: director names and addresses on this sheet come from the corporate register.",
+        "They are for business correspondence about the property. Not a mailing list, not to be",
+        "published, and not to leave the deal team.",
     ]
     for i, l in enumerate(lines, start=2):
         nw[f"A{i}"] = l
@@ -399,6 +449,7 @@ def main():
     print(f"{len(rows)} rows -> {out_path}")
     print(f"  registered owner from title: {stats['title']} | joined to corp search: {stats['corp']}"
           f" | corp signal raised score: {stats['signal']} | public-body owners ranked out: {stats['public']}")
+    print(f"  matched by company name (extraprovincial fallback): {stats['by_name']}")
 
 
 if __name__ == "__main__":
