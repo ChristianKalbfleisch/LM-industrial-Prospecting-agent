@@ -57,6 +57,52 @@ means an internal transfer or reorganisation, not an arm's-length sale. Counting
 real ownership change creates false recent-purchase suppressions on properties that never
 actually traded.
 
+## Corporate searches: what they actually tell you
+
+**Join corp searches to title by INCORPORATION NUMBER, never by company name.** Matching
+the comps "purchaser" name against company names resolved 31 of 55 rows. Joining on the
+incorporation number carried on title resolved 46 of 50 — because the name match silently
+missed every renamed or restructured owner. `1256495 B.C. LTD.` and
+`SALMONBERRY PROPERTIES INC.` are the same incorporation number, holding two adjacent
+strata lots; by name they look like unrelated parties.
+
+**The comps "purchaser" is often a trade name, not the entity on title.** 18 of 50 rows
+differed: `Punjab Milk Foods` -> `1357336 B.C. LTD.`, `Applewood Kia` -> `SOUTH COAST
+BRITISH COLUMBIA TRANSPORTATION AUTHORITY`. Only the entity on title can sign a listing,
+and in that last case the property had already passed to a public body. Never dial the
+comps name without checking title.
+
+**ALL ACTIVE is a real result, not a parsing failure.** All 45 companies searched in the
+first Surrey batch came back ACTIVE, none in liquidation, none in receivership, zero
+registered offices at law or accounting firms. The struck/dissolved signal this project
+weights most heavily was simply absent. Report that plainly rather than hunting for a
+substitute.
+
+**Annual-report delinquency is the usable soft signal.** The registrar may strike a company
+that misses two consecutive annual reports, so an owner two or three filings behind is on
+the path toward the dissolution event — visible before it happens. Note "Last Annual Report
+Filed" is the *anniversary date* the report was filed for, so months-since is the
+delinquency measure. In the Surrey batch: one owner 37.5 months behind (3 filings), which
+happened to be the top-ranked property on the list. Weak alone — plenty of solvent
+companies file late — it earns weight only on a property already ranked by other signals.
+
+**A recognition date that disagrees with the numbered name means restructuring.**
+`1367409 B.C. LTD.` registered as `BC1569621` with a recognition date of January 1, 2026 is
+an amalgamation or continuation, not a new holdco. Worth a small score bump; ownership was
+reorganised recently.
+
+**No annual report is not delinquency when none is due yet.** A company recognized inside
+the last year has nothing to file. Check the incorporation date before flagging.
+
+**Public authorities score well and are never sellers.** Vancouver Fraser Port Authority
+and TransLink hold industrial land as infrastructure. They pass every comps-derived signal
+and have no corporate record in BC Registries. Detect them off the owner name on title and
+rank them out — nothing cheaper catches this.
+
+**Not every owner is a BC company.** `2184034 ALBERTA LTD.` and `FORMA GROUP INC.
+(767084-2)` are extraprovincial or federal registrations; a BC Registries search returns
+nothing for them. That is a wrong-register problem, not a missing company.
+
 ## Duplicate rows that look like separate properties
 
 **One PID can cover several legal sub-parcels.** Surrey's property file has one row per
